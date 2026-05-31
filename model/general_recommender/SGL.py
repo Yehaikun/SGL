@@ -159,6 +159,9 @@ class SGL(AbstractRecommender):
         self.ssl_ratio = config["ssl_ratio"]
         self.ssl_mode = config["ssl_mode"]
         self.ssl_temp = config["ssl_temp"]
+        self.ssl_warmup_epochs = config["ssl_warmup_epochs"] if "ssl_warmup_epochs" in config else 0
+        self.mlc_start_layer = config["mlc_start_layer"] if "mlc_start_layer" in config else 0
+        self.mlc_layer_weight = config["mlc_layer_weight"] if "mlc_layer_weight" in config else "uniform"
 
         # Other hyper-parameters
         self.best_epoch = 0
@@ -173,6 +176,11 @@ class SGL(AbstractRecommender):
             self.ssl_mode,
             self.ssl_temp,
             self.ssl_reg
+        )
+        self.model_str += '/warmup=%d-mlc_start=%d-mlc_weight=%s' % (
+            self.ssl_warmup_epochs,
+            self.mlc_start_layer,
+            self.mlc_layer_weight
         )
         self.pretrain_flag = config["pretrain_flag"]
         if self.pretrain_flag:
@@ -290,17 +298,26 @@ class SGL(AbstractRecommender):
                 clogits_user = torch.logsumexp(ssl_logits_user / self.ssl_temp, dim=1)
                 clogits_item = torch.logsumexp(ssl_logits_item / self.ssl_temp, dim=1)
                 infonce_loss = torch.sum(clogits_user + clogits_item)
-                # MLC: Multi-Layer Contrastive
-                layers1 = self.lightgcn._forward_gcn(self.lightgcn.norm_adj, return_all=True)
+                # DMLC: warm up SSL and emphasize deeper propagation layers.
                 layers2_v1 = self.lightgcn._forward_gcn(sub_graph1, return_all=True)
                 layers2_v2 = self.lightgcn._forward_gcn(sub_graph2, return_all=True)
                 if isinstance(sub_graph1, list):
                     layers2_v1 = self.lightgcn._forward_gcn(sub_graph1, return_all=True)
                     layers2_v2 = self.lightgcn._forward_gcn(sub_graph2, return_all=True)
-                # For each layer, compute InfoNCE between view1 and view2 embeddings
+
                 mlc_loss = 0.0
                 n_layers = self.lightgcn.n_layers + 1
-                for li in range(n_layers):
+                start_layer = min(max(int(self.mlc_start_layer), 0), n_layers - 1)
+                active_layers = list(range(start_layer, n_layers))
+                if self.mlc_layer_weight == "linear":
+                    layer_weights = np.arange(1, len(active_layers) + 1, dtype=np.float32)
+                elif self.mlc_layer_weight == "deep":
+                    layer_weights = np.array(active_layers, dtype=np.float32) + 1.0
+                else:
+                    layer_weights = np.ones(len(active_layers), dtype=np.float32)
+                layer_weights = layer_weights / layer_weights.sum()
+
+                for weight, li in zip(layer_weights, active_layers):
                     u1, i1 = layers2_v1[li]
                     u2, i2 = layers2_v2[li]
                     u1n, i1n = F.normalize(u1, dim=1), F.normalize(i1, dim=1)
@@ -317,11 +334,14 @@ class SGL(AbstractRecommender):
                     si = ti - pi[:, None]
                     cu = torch.logsumexp(su / self.ssl_temp, dim=1)
                     ci = torch.logsumexp(si / self.ssl_temp, dim=1)
-                    mlc_loss += torch.sum(cu + ci)
-                mlc_loss /= n_layers
+                    mlc_loss += float(weight) * torch.sum(cu + ci)
                 infonce_loss = infonce_loss + mlc_loss
-                
-                loss = bpr_loss + self.ssl_reg * infonce_loss + self.reg * reg_loss
+
+                if self.ssl_warmup_epochs > 0:
+                    ssl_weight = min(1.0, float(epoch) / float(self.ssl_warmup_epochs))
+                else:
+                    ssl_weight = 1.0
+                loss = bpr_loss + self.ssl_reg * ssl_weight * infonce_loss + self.reg * reg_loss
                 total_loss += loss
                 total_bpr_loss += bpr_loss
                 total_reg_loss += self.reg * reg_loss
