@@ -162,6 +162,7 @@ class SGL(AbstractRecommender):
         self.ssl_warmup_epochs = config["ssl_warmup_epochs"] if "ssl_warmup_epochs" in config else 0
         self.mlc_start_layer = config["mlc_start_layer"] if "mlc_start_layer" in config else 0
         self.mlc_layer_weight = config["mlc_layer_weight"] if "mlc_layer_weight" in config else "uniform"
+        self.ssl_degree_alpha = config["ssl_degree_alpha"] if "ssl_degree_alpha" in config else 0.5
 
         # Other hyper-parameters
         self.best_epoch = 0
@@ -182,6 +183,7 @@ class SGL(AbstractRecommender):
             self.mlc_start_layer,
             self.mlc_layer_weight
         )
+        self.model_str += '/deg_alpha=%.2f' % self.ssl_degree_alpha
         self.pretrain_flag = config["pretrain_flag"]
         if self.pretrain_flag:
             self.epochs = 0
@@ -200,8 +202,15 @@ class SGL(AbstractRecommender):
             ensureDir(self.save_dir)
 
         self.num_users, self.num_items, self.num_ratings = self.dataset.num_users, self.dataset.num_items, self.dataset.num_train_ratings
-
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        user_degree = np.array(self.dataset.train_csr_mat.sum(1)).reshape(-1).astype(np.float32)
+        item_degree = np.array(self.dataset.train_csr_mat.sum(0)).reshape(-1).astype(np.float32)
+        self.user_ssl_weights = np.power(user_degree + 1.0, -float(self.ssl_degree_alpha))
+        self.item_ssl_weights = np.power(item_degree + 1.0, -float(self.ssl_degree_alpha))
+        self.user_ssl_weights = self.user_ssl_weights / self.user_ssl_weights.mean()
+        self.item_ssl_weights = self.item_ssl_weights / self.item_ssl_weights.mean()
+        self.user_ssl_weights = torch.from_numpy(self.user_ssl_weights).float().to(self.device)
+        self.item_ssl_weights = torch.from_numpy(self.item_ssl_weights).float().to(self.device)
         adj_matrix = self.create_adj_mat()
         adj_matrix = sp_mat_to_sp_tensor(adj_matrix).to(self.device)
 
@@ -334,7 +343,9 @@ class SGL(AbstractRecommender):
                     si = ti - pi[:, None]
                     cu = torch.logsumexp(su / self.ssl_temp, dim=1)
                     ci = torch.logsumexp(si / self.ssl_temp, dim=1)
-                    mlc_loss += float(weight) * torch.sum(cu + ci)
+                    u_weight = torch.index_select(self.user_ssl_weights, 0, bat_users)
+                    i_weight = torch.index_select(self.item_ssl_weights, 0, bat_pos_items)
+                    mlc_loss += float(weight) * torch.sum((cu * u_weight) + (ci * i_weight))
                 infonce_loss = infonce_loss + mlc_loss
 
                 if self.ssl_warmup_epochs > 0:
