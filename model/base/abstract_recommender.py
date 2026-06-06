@@ -11,18 +11,15 @@ from data import Dataset
 import abc
 import time
 import os
+from datetime import datetime
 
 
 @typeassert(config=Configurator, data_name=str)
 def _create_logger(config, data_name):
     # create a logger
-    timestamp = time.time()
-    model_name = config.recommender
-    param_str = f"{data_name}_{model_name}_{config.summarize()}"
-    run_id = f"{param_str[:150]}_{timestamp:.8f}"
-
-    log_dir = os.path.join("log", data_name, model_name)
-    logger_name = os.path.join(log_dir, run_id + ".log")
+    log_dir = os.path.join(config.root_dir, "logs")
+    log_name = f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.log"
+    logger_name = os.path.join(log_dir, log_name)
     logger = Logger(logger_name)
 
     return logger
@@ -43,22 +40,9 @@ class AbstractRecommender(object):
 
     @typeassert(config=Configurator, dataset=Dataset)
     def _create_logger(self, config, dataset):
-        timestamp = time.time()
-        if "pytorch" in self.__class__.__module__:
-            model_name = "torch_" + self.__class__.__name__
-        elif "tensorflow" in self.__class__.__module__:
-            model_name = "tf_" + self.__class__.__name__
-        else:
-            model_name = self.__class__.__name__
-        data_name = dataset.data_name
-        # param_str = f"{data_name}_{model_name}_{config.summarize()}"
-        param_str = f"{config.summarize()}"
-
-        run_id = f"{param_str[:150]}_{timestamp:.8f}"
-
-        # log_dir = os.path.join("log", data_name, self.__class__.__name__)
-        log_dir = os.path.join(config.root_dir + "log", data_name, model_name)
-        logger_name = os.path.join(log_dir, run_id + ".log")
+        log_dir = os.path.join(config.root_dir, "logs")
+        log_name = f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.log"
+        logger_name = os.path.join(log_dir, log_name)
         logger = Logger(logger_name)
 
         logger.info(f"my pid: {os.getpid()}")

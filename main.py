@@ -45,13 +45,9 @@ def find_recommender(recommender):
 
 
 if __name__ == "__main__":
-    is_windows = sys.platform.startswith('win')
-    if is_windows:
-        root_dir = '/root/paper/SGL-Torch/'
-        data_dir = '/root/paper/SGL-Torch/dataset/'
-    else:
-        root_dir = '/root/paper/SGL-Torch/'
-        data_dir = '/root/paper/SGL-Torch/dataset/'
+    # Auto-detect project root from script location
+    root_dir = os.path.dirname(os.path.abspath(__file__)) + "/"
+    data_dir = root_dir + "dataset/"
     config = Configurator(root_dir, data_dir)
     config.add_config(root_dir + "NeuRec.ini", section="NeuRec")
     config.parse_cmd()
