@@ -241,9 +241,9 @@ class MRGCL(AbstractRecommender):
         self.ssl_temp = config["ssl_temp"]
 
         # Hyper-parameters for cross-relation contrastive
-        self.social_reg = float(config.get("social_reg", 0.1))
-        self.cat_reg = float(config.get("cat_reg", 0.1))
-        self.cross_temp = float(config.get("cross_temp", self.ssl_temp))
+        self.social_reg = float(config["social_reg"]) if "social_reg" in config else 0.1
+        self.cat_reg = float(config["cat_reg"]) if "cat_reg" in config else 0.1
+        self.cross_temp = float(config["cross_temp"]) if "cross_temp" in config else self.ssl_temp
 
         # Other hyper-parameters
         self.best_epoch = 0
