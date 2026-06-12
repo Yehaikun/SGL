@@ -43,7 +43,8 @@ class AbstractRecommender(object):
 
     @typeassert(config=Configurator, dataset=Dataset)
     def _create_logger(self, config, dataset):
-        timestamp = time.time()
+        from datetime import datetime
+        timestamp_str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         if "pytorch" in self.__class__.__module__:
             model_name = "torch_" + self.__class__.__name__
         elif "tensorflow" in self.__class__.__module__:
@@ -51,14 +52,10 @@ class AbstractRecommender(object):
         else:
             model_name = self.__class__.__name__
         data_name = dataset.data_name
-        # param_str = f"{data_name}_{model_name}_{config.summarize()}"
-        param_str = f"{config.summarize()}"
 
-        run_id = f"{param_str[:150]}_{timestamp:.8f}"
-
-        # log_dir = os.path.join("log", data_name, self.__class__.__name__)
-        log_dir = os.path.join(config.root_dir + "log", data_name, model_name)
-        logger_name = os.path.join(log_dir, run_id + ".log")
+        log_dir = os.path.join(os.path.expanduser("~"), "paper/logs")
+        os.makedirs(log_dir, exist_ok=True)
+        logger_name = os.path.join(log_dir, f"{data_name}_{model_name}_{timestamp_str}.log")
         logger = Logger(logger_name)
 
         logger.info(f"my pid: {os.getpid()}")
